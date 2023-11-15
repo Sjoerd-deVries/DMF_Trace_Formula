@@ -1,0 +1,387 @@
+// ----------- PRELIMINARY FUNCTIONS -----------
+
+function TupleToSeq(tup) 
+// Turns a tuple (of the form <x1, x2, ...>) into a sequence (of the form [x1, x2, ...]).
+    seq := [];
+    for x := 1 to #tup do
+        seq := Append(seq,tup[x]);
+    end for;
+    return seq;
+end function;
+
+function IsImaginary(K,infty,f)
+// Takes as input a base field K, a place infty of K, and f in K[X].
+// Returns true if f is irreducible and the field extension of K obtained by adjoining a root of f is totally ramified at infty, and false otherwise.
+// A good "source" of places in Magma is e.g. Zeros(x) for some x in K.
+    if (IsIrreducible(f) eq false) then 
+        return false;
+    else
+        L := ext< K | f>;
+        if (#Decomposition(L,infty) eq 1) then
+            return true;
+        else
+            return false;
+        end if;
+    end if;
+end function;
+
+function SquareDivision(f,r)
+// Takes as its input a polynomial f in k[T] \subset K = k(T) for a finite field k = GF(r).
+// Outputs a list containing D and all polynomials g dividing f', where f = Df'^2 with D square-free and f' monic.
+// The outputs all live in the polynomial ring R = k[X].
+    k := GF(r);
+    K<T> := FunctionField(k);
+    R<X> := PolynomialRing(k);
+    j := hom<K -> R | X>;
+    f := j(f);
+    if (Degree(f) le 0) then
+        return([f]);
+    else
+    factorlist := Factorization(f);
+    D := f/(Facpol(factorlist)); // This is the leading coefficient of f.
+    for i := 1 to #factorlist do
+        if IsOdd(factorlist[i][2]) then
+            D *:= factorlist[i][1];
+            factorlist[i][2] -:= 1;
+        end if;
+    end for;
+    OutputList := [D];
+    for i := 1 to #factorlist do
+        factorlist[i][2] /:= 2;
+    end for;
+    f := Facpol(factorlist);
+    
+    // The above defines D and f such that (original f) = D*f^2 and f is monic.
+    // Next, we create all possible monic polynomials g dividing f, and add these to OutputList.
+    
+    K := CartesianProduct([quo< IntegerRing() | x[2] + 1> : x in factorlist]); 
+    for x in K do
+        g := R!1;
+        for i := 1 to #factorlist do
+            g *:= factorlist[i][1]^(IntegerRing()!(x[i]));
+        end for;
+        OutputList := Append(OutputList,g);
+    end for;
+    return OutputList;
+    end if;
+end function;
+
+function HomSym(m,a,b)
+// Takes as input a natural number m, and elements a, b from the same ring.
+// Returns the homogeneous symmetric polynomial h_m in two variables evaluated at (a,b).
+    P<X,Y> := PolynomialRing(IntegerRing(),2);
+    f := 0;
+    for i := 0 to m do
+        f +:= X^i*Y^(m-i);
+    end for;
+    return Evaluate(f,<a,b>);
+end function;
+
+function Lucas(n,m,p)
+// Computes Binomial(n,m) mod p using Lucas's theorem.
+	if (m gt n) then
+		return 0;
+	else if (m eq 0) then
+		return 1;
+	else
+		list1 := Intseq(n,p);
+		list2 := Intseq(m,p);
+		B := 1;
+		for x := 1 to #list2 do
+			B *:= Binomial(list1[x],list2[x]) mod p;
+		end for;
+		return (B mod p);
+	end if; end if;
+end function;
+
+function cuspdim(k,l,q)
+// Gives the dimension of the space of cusp forms S_{k,l} for F_q[T]
+	l := IntegerRing()!(l mod (q-1));
+	if l eq 0 then
+		l := q-1;
+	end if;
+	if (l le Floor(k/(q+1))) then
+		if ( (k - 2*l) mod (q-1) eq 0) then
+			return (1 + Floor( (k-l*(q+1)) / (q^2-1) ) );
+		end if;
+	end if;
+	return 0;
+end function;
+
+// ----------- COMPUTING TRACES -----------
+
+function SimpleHeckeTrace(k,l,q) 
+// Takes as input a weight k > 1, a type l, and a prime power q.
+// Outputs the trace of the Hecke operator for the prime (T) of F_q[T] acting on S_{k,l}.
+// This code is based on Theorem III.1.1 of the author's licentiate thesis.
+	weight := k;
+	k -:= 2; // So the k appearing here agrees with the k from the theorem
+	F := GF(q);
+	p := PrimeFactors(q)[1];
+	K<T> := FunctionField(F);
+	sum := 0;
+	if ((weight - 2*l) mod (q-1) eq 0) then
+		for j := 0 to Ceiling(k/2)-1 do
+			if ((j - k - 1 + l) mod (q-1) eq 0) then
+				a_j := (-1)^j * Lucas(k-j,j,p);
+				sum +:= a_j * T^j;
+			end if;
+		end for;
+	end if;
+	return sum;
+end function;
+
+function UniversalHeckeTrace(k) 
+// Calculates the universal Hecke trace of weight k for the prime (T), as defined in Corollary III.1.12.
+	k -:= 2;
+	R<T> := PolynomialRing(Rationals());
+	sum := R!0;
+	for j := 0 to Ceiling(k/2)-1 do
+		a_j := (-1)^j * Binomial(k-j,j);
+		sum +:= a_j * T^(j);
+	end for;
+	return sum;
+end function;
+
+function IsogClassList(q,n,P)
+// Takes as input a prime power q, a positive integer n, and an irreducible polynomial P in F_q[T]
+// Returns a complete list of Weil numbers of rank 2 over F_{(P)^n}.
+// The list contains as first entry P^n, and then tuples of the form <a,b,N> where a is a Weil number, b is its conjugate, and N is the number of isomorphism classes of Drinfeld modules with Weil number a.
+// See also Algorithm III.2.3 in the author's licentiate thesis.
+
+	k<a> := GF(q);
+	K<T> := FunctionField(k);
+   	R<X> := PolynomialRing(K);
+ 	i := hom<PolynomialRing(k) -> K | T>;
+    	Q := i(P);
+	OutputList := <Q^n>;
+
+// We first make a list of the ordinary Weil numbers via a loop. 
+
+    	maxcount := Floor(Degree(P)*n/2)+1;
+	for x in CartesianPower(k,maxcount) do
+        	z := Polynomial(TupleToSeq(x)); // This is a degree \leq (maxcount-1) polynomial over k
+	        if Gcd(z,P) eq 1 then
+        	    for y in [x : x in k | x ne 0] do
+                	f := X^2 + i(z)*X + y*(Q^n);
+	                if IsImaginary(K,Zeros(1/T)[1],f) then // If the extension is imaginary, we have found a Weil number. We now compute the size of its isomorphism class.
+				divlist := SquareDivision(Discriminant(f),q);
+				D := divlist[1];
+				L := ext< K | X^2 - D>;
+				roots := Roots(PolynomialRing(L)!f);
+				alpha := roots[1][1];
+				beta := roots[2][1];
+				A := MaximalOrderFinite(L);
+				// hD := (q-1)*ClassNumber(A)/#UnitGroup(A); use this if one wants hD as a rational number
+				hD := ClassNumber(A);
+				N := K!(hD);
+				for c := 3 to #divlist do // we start at 3 since divlist[1] is D and divlist[2] is 1.
+					g := PolynomialRing(k)!(divlist[c]);
+					tempprod := 1;
+					for y in Factorization(g) do
+						if DecompositionType(L,Zeros(i(y[1]))[1])[1][2] eq 1 then // this means: if not ramified,
+							chi := (-1)^(#DecompositionType(L,Zeros(i(y[1]))[1])); // 1 if split, -1 if inert
+							tempprod *:= 1 - chi/(q^(Degree(y[1])));
+						end if;
+					end for;
+					hg := q^(Degree(g)) * tempprod * hD;
+					N +:= hg;
+				end for;
+	                	OutputList := Append(OutputList,<alpha,beta,N>);
+        	        end if;
+	            end for;
+        	end if;
+	end for;
+
+// Next come the supersingular Weil numbers, in three cases.
+// Case 1:
+
+if IsOdd(n) then
+		for x in k do
+	            f := X^2 - x*(Q^n);
+        	    if IsImaginary(K,Zeros(1/T)[1],f) then
+	                L := ext< K | X^2 - x*Q>;
+			A := MaximalOrderFinite(L);
+                	// N := (q-1)*ClassNumber(A)/#UnitGroup(A); use this if one wants N as a rational number
+			N := ClassNumber(A);
+			roots := Roots(PolynomialRing(L)!f);
+			alpha := roots[1][1];
+			beta := roots[2][1];
+        	        OutputList := Append(OutputList,<alpha,beta,N>);
+	            end if;
+        	end for;
+	end if; 
+
+// Case 2:
+
+	if (IsEven(n) and IsOdd(Degree(P))) then
+    		for T in [y : y in k] do
+	            for m in [z : z in k | z ne 0] do
+        	        if IsIrreducible(Polynomial([1,T,m])) then
+				f := X^2 + T*Q^(IntegerRing()!(n/2))*X + m*Q^n;
+				L := ext<K | f>;
+				roots := Roots(PolynomialRing(L)!f);
+				alpha := roots[1][1];
+				beta := roots[2][1];
+				// N := 2/(q+1);
+				N := 2;
+                		OutputList := Append(OutputList,<alpha,beta,N>);
+	                end if;
+        	    end for;
+	        end for;
+	end if;
+
+// Case 3:
+
+	if IsEven(n) then
+	        for x in [x : x in k | x ne 0] do
+			f := X - x*Q^(IntegerRing()!(n/2));
+			alpha := x*Q^(IntegerRing()!(n/2));
+			beta := alpha;
+			// N := (q^(Degree(P)) - 1)/(q^2 - 1); use this if one wants N as a rational number
+			N := 1;
+        		OutputList := Append(OutputList,<alpha,beta,N>);
+        	end for;
+	end if;
+	return OutputList;
+end function;
+
+function TraceFromList(k,l,q,list)
+// Takes as input a prime power q, a weight k > 1, a type l, and a list containing a characteristic P^n and tuples <a,b,N> consisting of a Weil number a, its conjugate b, and a number N.
+// Outputs the trace of (T_P)^n on S_{k,l}.
+	K<T> := FunctionField(GF(q));
+	trace := K!0;
+	c := list[1];
+	for i := 2 to #list do
+		a := list[i][1];
+		b := list[i][2];
+		trace +:= K!(list[i][3] * HomSym(k-2,a,b) * (a*b/c)^(k-l+1));
+	end for;
+	return trace;
+end function;
+
+function HeckeTrace(k,l,q,n,P)
+// Takes as input a weight k > 1, a type l, a prime power q, an integer n > 0, and an irreducible polynomial P in F_q[T].
+// Outputs the trace of (T_P)^n on S_{k,l}.
+	list := IsogClassList(q,n,P);
+	return TraceFromList(k,l,q,list);
+end function;
+
+
+// ----------- COMPUTING CHARACTERISTIC POLYNOMIALS -----------
+
+function CharPolFromList(k,l,q,list)
+// Takes as input a weight k > 1, a type l, a prime power q, and a list containing sufficiently many traces of powers of a Hecke operator acting on S_{k,l}.
+// The list should be a sequence of the form [Tr_1, Tr_2, ..., Tr_n] with n large enough; if n is too small, the program will return a runtime error.
+// Outputs the characteristic polynomial of T_P on S_{k,l} over F_q, using Algorithm A.2.15 of the author's licentiate thesis
+// It is a priori possible that this code gives an error also when n is large enough, which would happen only if the determinant in the mentioned algorithm is zero.
+
+	d := cuspdim(k,l,q); // So we need to compute e_1,e_2,...,e_d in d variables.
+	p := Characteristic(GF(q));
+	N := d + Floor((d-1)/(p-1)); // This is how many traces we need.
+	pVec := list[1..N];
+// Now we calculate the e's and put them in a vector eVec, in such a way that eVec[i] = e_{d-i+1}
+	eVec := ZeroMatrix(FunctionField(GF(q)),d+1,1);
+	eVec[d+1,1] := 1; 
+	eVec[d,1] := pVec[1];
+// First by using Newton's identities:
+	for i := 2 to Min(p-1,d) do
+		sum := 0;
+		for j := 1 to i do
+			sum +:= eVec[d+1-(i-j),1]*pVec[j]*((-1)^(j-1));
+		end for;
+		eVec[d+1-i,1] := sum/i;
+	end for;
+// Then by using Algorithm A.2.3, if necessary:
+	if d ge p then
+		Q := [FunctionField(GF(q))| ]; // This initializes the matrix we want to row reduce
+		for r := (p+1) to N do
+			if GCD(r,p) eq 1 then
+				for c := 1 to (d+1) do
+					if (d+1-c) gt r then
+						Q := Append(Q,0);
+					else if (d+1-c) eq r then
+						Q := Append(Q,(-1)*r);
+					else
+						Q := Append(Q,(-1)^(r-d+c) * pVec[r-d-1+c]);
+					end if; end if;
+				end for;
+			end if;
+		end for;
+		M := Matrix(FunctionField(GF(q)),d-p+1,d+1,Q);
+		newM := EchelonForm(M); // This gives an error if the matrix M does not have full rank. (???)
+// Finally, we use newM to find the remaining coefficients of the characteristic polynomial.
+		for i := p to d do // Insert e_i as the (d+1-i)th entry of eVec
+			eVec[d+1-i,1] := (-1)*(newM*eVec)[d+1-i,1];
+		end for;
+	end if;
+	charVec := [(-1)^(d)*eVec[1,1]];
+	for i := 2 to d+1 do
+		charVec := Append(charVec,(-1)^(d-i+1)*eVec[i,1]);
+	end for;
+	return Polynomial(charVec);
+end function;
+
+function CharPol(k,l,q,P)
+// Takes as input a weight k > 1, a type l, a prime power q, and an irreducible polynomial P in F_q[T]
+// Gives the characteristic polynomial of T_P on S_{k,l} over F_q
+// Works by creating a list of traces of Hecke operators and plugging this into the function CharPolFromList
+	d := cuspdim(k,l,q); // So we need to compute e_1,e_2,...,e_d in d variables.
+	p := Characteristic(GF(q));
+	if (d eq 0) then
+		return 0;
+	else
+		N := d + Floor((d-1)/(p-1)); // This is how many traces we need.
+		if (P eq Polynomial([0,1])) then // Here we start creating the vector of traces.
+			pList := [SimpleHeckeTrace(k,l,q)];
+		else
+			pList := [HeckeTrace(k,l,q,1,P)];
+		end if;
+		for i := 2 to N do // Calculate all necessary power sums
+			if (GCD(i,p) eq 1) then
+				pList := Append(pList,HeckeTrace(k,l,q,i,P));
+			else
+				pList := Append(pList,pList[IntegerRing()!(i/p)]^p);
+			end if;
+		end for;
+		return CharPolFromList(k,l,q,pList);
+	end if;
+end function;
+
+
+// ----------- COMPUTING SLOPES -----------
+
+function Slopes(f,place)
+// Takes as input a polynomial f over a global field K, and a non-archimedean place of K
+// Outputs the (place)-adic valuations of the roots of f with multiplicities.
+// The form of the output is a tuple of the form < <slope_1,mult_1>, ..., <slope_n,mult_n> >.
+	N := NewtonPolygon(f,place);
+	FaceList := LowerFaces(N);
+	SlopeList := LowerSlopes(N);
+	vals := <>;
+	for i := 1 to #FaceList do
+		vals := Append(vals,<(-1)*SlopeList[i],EndVertices(FaceList[i])[2][1] - EndVertices(FaceList[i])[1][1]>);
+	end for;
+	return vals;
+end function;
+
+function InfHeckeSlopes(k,l,q,P)
+// Takes as input a weight k > 1, a type l, a prime power q, and an irreducible polynomial P in F_q[T]
+// Gives the degrees of the eigenvalues of T_P acting on S_{k,l} with multiplicities
+// The form of the output is a tuple of the form < <deg_1,mult_1>, ..., <deg_n,mult_n> >.
+	K<T> := FunctionField(GF(q));
+	f := PolynomialRing(K)!CharPol(k,l,q,P);
+	inf := Zeros(1/T)[1];
+	vals := Slopes(f,inf);
+	return vals;
+end function;
+
+function THeckeSlopes(k,l,q,P) 
+// Takes as input a weight k > 1, a type l, a prime power q, and an irreducible polynomial P in F_q[T]
+// Gives the T-adic valuations of the eigenvalues of T_P acting on S_{k,l} with multiplicities
+// The form of the output is a tuple of the form < <slope_1,mult_1>, ..., <slope_n,mult_n> >.
+	K<T> := FunctionField(GF(q));
+	f := PolynomialRing(K)!CharPol(k,l,q,P);
+	T_place := Zeros(T)[1];
+	return Slopes(f,T_place);
+end function;
