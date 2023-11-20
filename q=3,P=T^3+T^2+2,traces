@@ -1,4 +1,4 @@
-Traces of the Hecke operator for the prime T^3 + T^2 + 2 acting on S_{k,l}.
+Traces of the Hecke operator for the prime T^3 + T^2 + 2 acting on S_{k,l} for k \leq 500 and both types.
 Note that these traces are almost never the same as the ones for the prime T after substituting T^3 + T^2 + 2.
 In fact, already for k = 10, the trace cannot be written as a polynomial in T^3 + T^2 + 2 over GF(3), only over GF(3)[T].
 
