@@ -1,5 +1,5 @@
-Traces of the Hecke operator for the prime T^3 + 2T + 1 acting on S_{k,l}.
-Note that these traces are exactly the same as the traces for the prime T after substituting the current prime for T.
+Traces of the Hecke operator for the prime T^3 + 2T + 1 acting on S_{k,l} for k \leq 500 and both types.
+Note that these traces are exactly the same as the traces for the prime T after substituting T^3 + 2T + 1 for T.
 (The analogous statement is no longer true for the trace of the square of this Hecke operator.)
 
 (k,l) = (3,0): 0
