@@ -252,10 +252,11 @@ function TraceFromList(k,l,q,list)
 	K<T> := FunctionField(GF(q));
 	trace := K!0;
 	c := list[1];
+	t := k-l+1 mod (q-1);
 	for i := 2 to #list do
 		a := list[i][1];
 		b := list[i][2];
-		trace +:= K!(list[i][3] * HomSym(k-2,a,b) * (a*b/c)^(k-l+1));
+		trace +:= K!(list[i][3] * HomSym(k-2,a,b) * (a*b/c)^(t));
 	end for;
 	return trace;
 end function;
@@ -309,7 +310,10 @@ function CharPolFromList(k,l,q,list)
 			end if;
 		end for;
 		M := Matrix(FunctionField(GF(q)),d-p+1,d+1,Q);
-		newM := EchelonForm(M); // This gives an error if the matrix M does not have full rank. (???)
+		if Rank(M) lt (d-p+1) then
+			return "The matrix does not have full rank, algorithm fails.";
+		end if;
+		newM := EchelonForm(M);
 // Finally, we use newM to find the remaining coefficients of the characteristic polynomial.
 		for i := p to d do // Insert e_i as the (d+1-i)th entry of eVec
 			eVec[d+1-i,1] := (-1)*(newM*eVec)[d+1-i,1];
