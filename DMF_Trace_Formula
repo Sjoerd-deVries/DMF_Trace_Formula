@@ -108,6 +108,40 @@ function cuspdim(k,l,q)
 	return 0;
 end function;
 
+function Hurwitz(D,q) // D is a polynomial (discriminant) in one variable over k=GF(q), as an element of the rational function field over k; we compute its Hurwitz class number mod p.
+	k := GF(q);
+    	K<T> := FunctionField(k);
+    	R<X> := PolynomialRing(k);
+	i := hom<R -> K | T>;
+	j := hom<K -> R | X>;
+	S<Y> := PolynomialRing(K);
+	L := ext< K | Y^2 - D>;
+	A := MaximalOrderFinite(L);
+	h := k!ClassNumber(A); // This is the class number of the maximal finite order (= A + A[d] for the fundamental discriminant d).
+	if h eq 0 then
+		return(0);
+	end if;
+    	D := j(D);
+	if (Degree(D) le 0) then
+        	return(1); // D constant means #Pic = 1.
+    	else
+    		factorlist := Factorization(D);
+		count := 0; // We will count the number of primes dividing D which are inert in K(sqrt(D)).
+    		for t := 1 to #factorlist do
+        		if (factorlist[t][2] mod 2) eq 0 then // P^{2n} divides D, so we need to check ramification behaviour of P. (P ramifies iff an odd power of P divides D)
+				y := i(factorlist[t][1]);
+				ram := DecompositionType(L,Zeros(y)[1]); // the places of L lying over P, in the form <f,e>
+				if #ram gt 1 then // y splits in L: we are done, as then 0 divides H(D).
+					return(0);
+        			end if;
+				count +:= 1;
+			end if;
+    		end for;
+	return(h*(2^count));
+	end if;
+end function;
+
+
 // ----------- COMPUTING TRACES -----------
 
 function SimpleHeckeTrace(k,l,q) 
@@ -146,8 +180,7 @@ end function;
 function IsogClassList(q,n,P)
 // Takes as input a prime power q, a positive integer n, and an irreducible polynomial P in F_q[T]
 // Returns a complete list of Weil numbers of rank 2 over F_{(P)^n}.
-// The list contains as first entry P^n, and then tuples of the form <a,b,N> where a is a Weil number, b is its conjugate, and N is the number of isomorphism classes of Drinfeld modules with Weil number a.
-// See also Algorithm III.2.3 in the author's licentiate thesis.
+// The list contains as first entry P^n, and then tuples of the form <a,b,N> such that X^2 + aX + bP^n is a Weil polynomial with #Iso(a,b) = N.
 
 	k<a> := GF(q);
 	K<T> := FunctionField(k);
@@ -165,29 +198,9 @@ function IsogClassList(q,n,P)
         	    for y in [x : x in k | x ne 0] do
                 	f := X^2 + i(z)*X + y*(Q^n);
 	                if IsImaginary(K,Zeros(1/T)[1],f) then // If the extension is imaginary, we have found a Weil number. We now compute the size of its isomorphism class.
-				divlist := SquareDivision(Discriminant(f),q);
-				D := divlist[1];
-				L := ext< K | X^2 - D>;
-				roots := Roots(PolynomialRing(L)!f);
-				alpha := roots[1][1];
-				beta := roots[2][1];
-				A := MaximalOrderFinite(L);
-				// hD := (q-1)*ClassNumber(A)/#UnitGroup(A); use this if one wants hD as a rational number
-				hD := ClassNumber(A);
-				N := K!(hD);
-				for c := 3 to #divlist do // we start at 3 since divlist[1] is D and divlist[2] is 1.
-					g := PolynomialRing(k)!(divlist[c]);
-					tempprod := 1;
-					for y in Factorization(g) do
-						if DecompositionType(L,Zeros(i(y[1]))[1])[1][2] eq 1 then // this means: if not ramified,
-							chi := (-1)^(#DecompositionType(L,Zeros(i(y[1]))[1])); // 1 if split, -1 if inert
-							tempprod *:= 1 - chi/(q^(Degree(y[1])));
-						end if;
-					end for;
-					hg := q^(Degree(g)) * tempprod * hD;
-					N +:= hg;
-				end for;
-	                	OutputList := Append(OutputList,<alpha,beta,N>);
+				L := ext< K | f>;
+				N := Hurwitz(Discriminant(f),q);
+	                	OutputList := Append(OutputList,<i(z),K!y,N>);
         	        end if;
 	            end for;
         	end if;
@@ -196,18 +209,15 @@ function IsogClassList(q,n,P)
 // Next come the supersingular Weil numbers, in three cases.
 // Case 1:
 
-if IsOdd(n) then
-		for x in k do
-	            f := X^2 - x*(Q^n);
+	if IsOdd(n) then
+		for x in [x : x in k | x ne 0] do
+	            f := X^2 + x*(Q^n);
         	    if IsImaginary(K,Zeros(1/T)[1],f) then
-	                L := ext< K | X^2 - x*Q>;
-			A := MaximalOrderFinite(L);
+	                Z := ext< K | X^2 + x*Q>;
+			A := MaximalOrderFinite(Z);
                 	// N := (q-1)*ClassNumber(A)/#UnitGroup(A); use this if one wants N as a rational number
 			N := ClassNumber(A);
-			roots := Roots(PolynomialRing(L)!f);
-			alpha := roots[1][1];
-			beta := roots[2][1];
-        	        OutputList := Append(OutputList,<alpha,beta,N>);
+        	        OutputList := Append(OutputList,<K!0,K!x,N>);
 	            end if;
         	end for;
 	end if; 
@@ -215,17 +225,13 @@ if IsOdd(n) then
 // Case 2:
 
 	if (IsEven(n) and IsOdd(Degree(P))) then
-    		for T in [y : y in k] do
+    		for v in [y : y in k] do
 	            for m in [z : z in k | z ne 0] do
-        	        if IsIrreducible(Polynomial([1,T,m])) then
-				f := X^2 + T*Q^(IntegerRing()!(n/2))*X + m*Q^n;
-				L := ext<K | f>;
-				roots := Roots(PolynomialRing(L)!f);
-				alpha := roots[1][1];
-				beta := roots[2][1];
-				// N := 2/(q+1);
+        	        if IsIrreducible(Polynomial([1,v,m])) then
+				V := K!v*Q^(IntegerRing()!(n/2));
+				f := X^2 + V*X + m*Q^n;
 				N := 2;
-                		OutputList := Append(OutputList,<alpha,beta,N>);
+                		OutputList := Append(OutputList,<V,K!m,N>);
 	                end if;
         	    end for;
 	        end for;
@@ -235,39 +241,38 @@ if IsOdd(n) then
 
 	if IsEven(n) then
 	        for x in [x : x in k | x ne 0] do
-			f := X - x*Q^(IntegerRing()!(n/2));
-			alpha := x*Q^(IntegerRing()!(n/2));
-			beta := alpha;
+			V := K!x*Q^(IntegerRing()!(n/2));
+			f := X + V;
 			// N := (q^(Degree(P)) - 1)/(q^2 - 1); use this if one wants N as a rational number
 			N := 1;
-        		OutputList := Append(OutputList,<alpha,beta,N>);
+        		OutputList := Append(OutputList,<2*V,K!x^2,N>);
         	end for;
 	end if;
 	return OutputList;
 end function;
 
 function TraceFromList(k,l,q,list)
-// Takes as input a prime power q, a weight k > 1, a type l, and a list containing a characteristic P^n and tuples <a,b,N> consisting of a Weil number a, its conjugate b, and a number N.
+// Takes as input a prime power q, a weight k > 1, a type l, and a list containing a characteristic P^n and tuples <a,b,N> such that X^2 + aX + bP^n is a Weil polynomial with #Iso(a,b) = N.
 // Outputs the trace of (T_P)^n on S_{k,l}.
+	k -:= 2;
 	K<T> := FunctionField(GF(q));
 	trace := K!0;
-	c := list[1];
-	t := k-l+1 mod (q-1);
+	c := K!list[1];
 	for i := 2 to #list do
-		a := list[i][1];
-		b := list[i][2];
-		trace +:= K!(list[i][3] * HomSym(k-2,a,b) * (a*b/c)^(t));
+		for j := 0 to Ceiling(k/2) - 1 do
+			t := j+l-k-1 mod (q-1);
+			trace +:= K!( (-1)^j * Lucas(k-j,j,Characteristic(K)) * (list[i][3]) * ((list[i][1])^(k-2*j)) * ((list[i][2])^t) * c^j);
+		end for;
 	end for;
 	return trace;
 end function;
 
 function HeckeTrace(k,l,q,n,P)
-// Takes as input a weight k > 1, a type l, a prime power q, an integer n > 0, and an irreducible polynomial P in F_q[T].
-// Outputs the trace of (T_P)^n on S_{k,l}.
+	// Takes as input a weight k > 1, a type l, a prime power q, an integer n > 0, and an irreducible polynomial P in F_q[T].
+	// Outputs the trace of (T_P)^n on S_{k,l}.
 	list := IsogClassList(q,n,P);
 	return TraceFromList(k,l,q,list);
 end function;
-
 
 // ----------- COMPUTING CHARACTERISTIC POLYNOMIALS -----------
 
